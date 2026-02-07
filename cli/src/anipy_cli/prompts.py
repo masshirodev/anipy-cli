@@ -79,6 +79,43 @@ def search_show_prompt(
     return anime
 
 
+def search_show_multi_prompt(mode: str, query: str) -> List["Anime"]:
+    with DotSpinner("Searching for ", colors.BLUE, query, "..."):
+        results: List[Anime] = []
+        for provider in get_prefered_providers(mode):
+            results.extend(
+                [
+                    Anime.from_search_result(provider, x)
+                    for x in provider.get_search(query)
+                ]
+            )
+
+    if len(results) == 0:
+        error(f"no search results for '{query}'")
+        return []
+
+    selected = inquirer.fuzzy(  # type: ignore
+        message=f"Select Show(s) for '{query}':",
+        choices=[
+            Choice(value=r, name=f"{n + 1}. {repr(r)}") for n, r in enumerate(results)
+        ],
+        multiselect=True,
+        long_instruction=(
+            "\nS = Anime is available in sub\n"
+            "D = Anime is available in dub\n"
+            "First two letters indicate the provider\n"
+            "| toggle: space | toggle all: ctrl+a | continue: enter | skip: ctrl+z |"
+        ),
+        keybindings={"toggle": [{"key": "space"}]},
+        mandatory=False,
+    ).execute()
+
+    if selected is None:
+        return []
+
+    return selected
+
+
 def _get_season_provider(mode: str) -> Optional["BaseProvider"]:
     season_provider = None
     for p in get_prefered_providers(mode):
@@ -213,8 +250,8 @@ def pick_episode_range_prompt(
         return []
 
     res = inquirer.text(  # type: ignore
-        message=f"Input Episode Range(s) from episodes {episodes[0]} to {episodes[-1]}:",
-        long_instruction="Type e.g. `1-10 19-20` or `3-4` or `3`\nTo skip this prompt press ctrl+z",
+        message=f"[{anime.name}] Input Episode Range(s) from episodes {episodes[0]} to {episodes[-1]}:",
+        long_instruction="Type e.g. `1-10 19-20` or `3-4` or `3` or `*` for all\nTo skip this prompt press ctrl+z",
         mandatory=False,
     ).execute()
 

@@ -77,16 +77,19 @@ def _safe_cli(args: CliArgs):
         migrate_provider("default", history_list)
         return
 
-    clis_dict = {
-        args.download: DownloadCli,
-        args.binge: BingeCli,
-        args.seasonal: SeasonalCli,
-        args.history: HistoryCli,
-        args.mal: MalCli,
-        args.anilist: AniListCli,
-    }
+    if args.download_list is not None:
+        cli_class = ListDownloadCli
+    else:
+        clis_dict = {
+            args.download: DownloadCli,
+            args.binge: BingeCli,
+            args.seasonal: SeasonalCli,
+            args.history: HistoryCli,
+            args.mal: MalCli,
+            args.anilist: AniListCli,
+        }
 
-    cli_class = clis_dict.get(True, DefaultCli)
+        cli_class = clis_dict.get(True, DefaultCli)
 
     try:
         cli_class(options=args).run()

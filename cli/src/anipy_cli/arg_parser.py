@@ -14,6 +14,7 @@ class CliArgs:
     seasonal: bool
     mal: bool
     anilist: bool
+    download_list: Optional[Path]
     delete: bool
     migrate_hist: bool
     quality: Optional[Union[str, int]]
@@ -105,6 +106,19 @@ def parse_args(override_args: Optional[list[str]] = None) -> CliArgs:
         dest="anilist",
         action="store_true",
         help="Anilist mode. Similar to seasonal mode, but using Anilist",
+    )
+
+    actions_group.add_argument(
+        "-L",
+        "--download-list",
+        required=False,
+        dest="download_list",
+        type=Path,
+        default=None,
+        help="Batch download mode. Provide a text file with one anime name per line. "
+        "Searches for each, lets you pick matches (multi-select for seasons), "
+        "and choose episodes per anime (* for all). Saves selections to a JSON "
+        "file for resume on interruption.",
     )
 
     actions_group.add_argument(

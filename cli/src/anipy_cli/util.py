@@ -162,6 +162,9 @@ def get_post_download_scripts_hook(
 
 
 def parse_episode_ranges(ranges: str, episodes: List["Episode"]) -> List["Episode"]:
+    if ranges.strip() == "*":
+        return list(episodes)
+
     picked = set()
     for r in ranges.split():
         numbers = [parsenum(n) for n in r.split("-")]
