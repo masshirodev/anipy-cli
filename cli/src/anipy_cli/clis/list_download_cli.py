@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from anipy_api.anime import Anime
+from anipy_api.download import Downloader
 from anipy_api.provider import LanguageTypeEnum, list_providers
 
 from anipy_cli.clis.base_cli import CliBase
@@ -91,6 +92,19 @@ class ListDownloadCli(CliBase):
     def _save_state(self):
         self.state_file.write_text(json.dumps(self.state, indent=2))
 
+    def _check_already_on_disk(self, anime_data: Dict[str, Any]) -> bool:
+        anime_name = Downloader._get_valid_pathname(anime_data["name"])
+        anime_folder = self.dl_path / anime_name
+        if not anime_folder.is_dir():
+            return False
+
+        existing_files = {p.stem for p in anime_folder.iterdir() if p.is_file()}
+        for ep in anime_data["episodes"]:
+            ep_str = str(ep).zfill(2)
+            if not any(ep_str in f for f in existing_files):
+                return False
+        return True
+
     def _resolve_anime(self, provider_name: str, identifier: str, name: str, languages: List[str]) -> Anime:
         for p_cls in list_providers():
             if p_cls.NAME == provider_name:
@@ -178,6 +192,7 @@ class ListDownloadCli(CliBase):
                             int(e) if isinstance(e, int) or (isinstance(e, float) and e.is_integer()) else float(e)
                             for e in episodes
                         ],
+                        "downloaded": False,
                     }
                 )
 
@@ -193,12 +208,23 @@ class ListDownloadCli(CliBase):
             str(self.state_file),
         )
 
-        # Build the picked list from all pending entries
+        # Build the picked list, skipping already-downloaded anime
         for entry in self.state["entries"]:
             if entry["status"] == "completed":
                 continue
 
             for anime_data in entry["anime"]:
+                if anime_data.get("downloaded", False):
+                    continue
+
+                if self._check_already_on_disk(anime_data):
+                    anime_data["downloaded"] = True
+                    cprint(
+                        colors.GREEN,
+                        f"  {anime_data['name']} — already on disk, skipping",
+                    )
+                    continue
+
                 anime = self._resolve_anime(
                     anime_data["provider"],
                     anime_data["identifier"],
@@ -212,51 +238,55 @@ class ListDownloadCli(CliBase):
                 ]
                 self.picked.append((anime, lang, episodes))
 
+        # Update entry statuses and save after disk checks
+        for entry in self.state["entries"]:
+            self._check_entry_completed(entry)
+        self._save_state()
+
         if not self.picked:
             cprint(colors.GREEN, "\nAll anime already downloaded!")
             return False
+
+    def _find_anime_data(self, anime_name: str, provider: str) -> Optional[Dict[str, Any]]:
+        for entry in self.state["entries"]:
+            for anime_data in entry["anime"]:
+                if anime_data["name"] == anime_name and anime_data["provider"] == provider:
+                    return anime_data
+        return None
+
+    def _check_entry_completed(self, entry: Dict[str, Any]):
+        if all(a.get("downloaded", False) for a in entry["anime"]):
+            entry["status"] = "completed"
 
     def process(self):
         if not self.picked:
             return
 
-        # Track which entry each (anime, lang, episodes) tuple belongs to
-        # so we can mark entries completed incrementally
-        entry_anime_map: Dict[int, List[int]] = {}
-        pick_idx = 0
-        for entry_idx, entry in enumerate(self.state["entries"]):
-            if entry["status"] == "completed":
-                continue
-            for _ in entry["anime"]:
-                entry_anime_map.setdefault(entry_idx, []).append(pick_idx)
-                pick_idx += 1
+        all_errors: List[Tuple[Anime, "Episode"]] = []
 
-        errors = DownloadComponent(
-            self.options, self.dl_path, "download"
-        ).download_anime(
-            self.picked,
-            after_success_ep=lambda anime, ep, lang: None,
-            only_skip_ep_on_err=True,
-            sub_only=self.options.subtitles,
-        )
+        for anime, lang, episodes in self.picked:
+            errors = DownloadComponent(
+                self.options, self.dl_path, "download"
+            ).download_anime(
+                [(anime, lang, episodes)],
+                only_skip_ep_on_err=True,
+                sub_only=self.options.subtitles,
+            )
 
-        # After download completes, mark all non-failed entries as completed
-        failed_anime_names = {a.name for a, _ in errors}
+            if not errors:
+                anime_data = self._find_anime_data(anime.name, anime.provider.NAME)
+                if anime_data:
+                    anime_data["downloaded"] = True
+                    # Check if the whole entry is now complete
+                    for entry in self.state["entries"]:
+                        if any(a is anime_data for a in entry["anime"]):
+                            self._check_entry_completed(entry)
+                            break
+                self._save_state()
+            else:
+                all_errors.extend(errors)
 
-        for entry_idx, pick_indices in entry_anime_map.items():
-            entry = self.state["entries"][entry_idx]
-            all_ok = True
-            for pi in pick_indices:
-                anime, lang, eps = self.picked[pi]
-                if anime.name in failed_anime_names:
-                    all_ok = False
-                    break
-            if all_ok:
-                entry["status"] = "completed"
-
-        self._save_state()
-
-        DownloadComponent.serve_download_errors(errors, only_skip_ep_on_err=True)
+        DownloadComponent.serve_download_errors(all_errors, only_skip_ep_on_err=True)
 
     def show(self):
         pass

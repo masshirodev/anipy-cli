@@ -305,8 +305,8 @@ class AniList:
         query ($search: String!, $page: Int, $perPage: Int) {
           Page (page: $page, perPage: $perPage){
           page_info: pageInfo {
-              currentPage
-              hasNextPage
+              current_page: currentPage
+              has_next_page: hasNextPage
           }
           media (search: $search, type: ANIME) {
           id
@@ -499,25 +499,39 @@ class AniList:
         Returns:
             Object of the updated anime
         """
-        query = """
-        mutation ($listEntryId: Int, $status: MediaListStatus, $episodes: Int, $notes: String) {
-          SaveMediaListEntry(id: $listEntryId, status: $status, progress: $episodes, notes: $notes) {
-            entry_id: id
-            notes
-            num_episodes_watched: progress
-            status
-            score
-          }
-        }
-        """
         my_list_status = self.get_anime(anime_id).my_list_status
-        if not my_list_status:
-            raise ValueError(f"No existing list entry found for anime ID {anime_id}.")
-        list_entry_id = my_list_status.entry_id
+
+        if my_list_status:
+            query = """
+            mutation ($listEntryId: Int, $status: MediaListStatus, $episodes: Int, $notes: String) {
+              SaveMediaListEntry(id: $listEntryId, status: $status, progress: $episodes, notes: $notes) {
+                entry_id: id
+                notes
+                num_episodes_watched: progress
+                status
+                score
+              }
+            }
+            """
+            id_var = {"listEntryId": my_list_status.entry_id}
+        else:
+            query = """
+            mutation ($mediaId: Int, $status: MediaListStatus, $episodes: Int, $notes: String) {
+              SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $episodes, notes: $notes) {
+                entry_id: id
+                notes
+                num_episodes_watched: progress
+                status
+                score
+              }
+            }
+            """
+            id_var = {"mediaId": anime_id}
+
         variables = {
             k: v
             for k, v in {
-                "listEntryId": list_entry_id,
+                **id_var,
                 "status": status.value if status else None,
                 "num_watched_episodes": watched_episodes,
                 "tags": ",".join(tags) if tags is not None else None,
